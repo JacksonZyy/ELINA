@@ -1,8 +1,7 @@
 #ifdef GUROBI
 #include <stdlib.h>
 #include <stdio.h>
-
-#include "gurobi_c.h"
+#include </home/yuyi/loris5/PRIMA/gurobi912/linux64/include/gurobi_c.h>
 #endif
 
 #include "compute_bounds.h"
@@ -1025,4 +1024,47 @@ double get_ub_using_previous_layers(elina_manager_t *man, fppoly_t *fp, expr_t *
 	
 }
 
+// additional function for run_deeppoly() for GPUARENA
 
+double get_lb_using_prev_layer(elina_manager_t *man, fppoly_t *fp, expr_t **expr, int k)
+{
+	size_t i;
+	expr_t *lexpr = copy_expr(*expr);
+	fppoly_internal_t *pr = fppoly_init_from_manager(man, ELINA_FUNID_ASSIGN_LINEXPR_ARRAY);
+	double res = INFINITY;
+	double lb = 0;
+	if (k >= 0)
+	{
+		lb = get_lb_using_predecessor_layer(pr, fp, &lexpr, k);
+		res = fmin(res, lb);
+	}
+	else
+	{
+		lb = compute_lb_from_expr(pr, lexpr, fp, -1);
+		res = fmin(res, lb);
+	}
+	free_expr(*expr);
+	*expr = lexpr;
+	return res;
+}
+
+double get_ub_using_prev_layer(elina_manager_t *man, fppoly_t *fp, expr_t **expr, int k)
+{
+	size_t i;
+	expr_t *uexpr = copy_expr(*expr);
+	fppoly_internal_t *pr = fppoly_init_from_manager(man, ELINA_FUNID_ASSIGN_LINEXPR_ARRAY);
+	double res = INFINITY;
+	if (k >= 0)
+	{
+		res = fmin(res, get_ub_using_predecessor_layer(pr, fp, &uexpr, k));
+	}
+	else
+	{
+		res = fmin(res, compute_ub_from_expr(pr, uexpr, fp, -1));
+	}
+	free_expr(*expr);
+	*expr = uexpr;
+	return res;
+}
+
+//end of my new functions

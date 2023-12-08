@@ -203,8 +203,46 @@ def fppoly_from_network_input_poly(man, intdim, realdim, inf_array, sup_array,
     return res
 
 
+# TODO generate handle_sparse_layer API
 
+def handle_sparse_layer(man, element,weights, bias,  size, num_pixels, predecessors, num_predecessors):
+    """
+    handle the sparse fully-connected layer
+    
+    Parameters
+    ----------
+    man : ElinaManagerPtr
+        Pointer to the ElinaManager.
+    element : ElinaAbstract0Ptr
+        Pointer to the ElinaAbstract0.
+    weights : POINTER(POINTER(c_double))
+        The weight matrix.
+    bias : POINTER(c_double)
+        The bias vector
+    size: c_size_t
+	Number of neurons in the first layer
+    num_pixels: c_size_t
+        Number of pixels in the input
+    predecessors: POINTER(c_size_t)
+        the layers before the current layer
+    num_predecessors: c_size_t
+        the number of predecessors of the current layer
+    Returns
+    -------
+    res : ElinaAbstract0Ptr
+        Pointer to the new abstract object.
 
+    """
+    try:
+        handle_sparse_layer_c = fppoly_api.handle_sparse_layer
+        handle_sparse_layer_c.restype = None
+        handle_sparse_layer_c.argtypes = [ElinaManagerPtr, ElinaAbstract0Ptr, _doublepp, ndpointer(ctypes.c_double),  c_size_t, c_size_t, POINTER(c_size_t), c_size_t]
+        handle_sparse_layer_c(man, element, weights, bias,  size, num_pixels, predecessors, num_predecessors)
+    except Exception as inst:
+        print('Problem with loading/calling "handle_sparse_layer_c" from "libfppoly.so"')
+        print(inst)	
+    return
+    
 
 def handle_fully_connected_layer(man, element,weights, bias,  size, num_pixels, predecessors, num_predecessors):
     """
@@ -236,6 +274,9 @@ def handle_fully_connected_layer(man, element,weights, bias,  size, num_pixels, 
     """
 
     try:
+        # print("the type of weights", type(weights))
+        # print("the shape of weights", weights.shape)
+        # print("the shape of bias", bias.shape)
         handle_fully_connected_layer_c = fppoly_api.handle_fully_connected_layer
         handle_fully_connected_layer_c.restype = None
         handle_fully_connected_layer_c.argtypes = [ElinaManagerPtr, ElinaAbstract0Ptr, _doublepp, ndpointer(ctypes.c_double),  c_size_t, c_size_t, POINTER(c_size_t), c_size_t]
@@ -846,7 +887,89 @@ def handle_log_layer(man, element, num_neurons, predecessors, num_predecessors):
         print('Problem with loading/calling "handle_log_layer" from "libfppoly.so"')
         print(inst)
 
+# added function for GPUArena
+def label_deviation_lb(man, element, y, x):
+    """
+     Check the lower bound of y-x in the abstract element 
+    
+    Parameters
+    ----------
+    man : ElinaManagerPtr
+        Pointer to the ElinaManager.
+    destructive : c_bool
+        Boolean flag.
+    y : ElinaDim
+        The dimension y in the constraint y-x>0.
+    x: ElinaDim
+	The dimension x in the constraint y-x>0.
+    Returns
+    -------
+    res = double
 
+    """
+    res= None
+    try:
+        label_deviation_lb_c = fppoly_api.label_deviation_lb
+        label_deviation_lb_c.restype = c_double
+        label_deviation_lb_c.argtypes = [ElinaManagerPtr, ElinaAbstract0Ptr, ElinaDim, ElinaDim]
+        res = label_deviation_lb_c(man,element,y, x)
+    except Exception as inst:
+        print('Problem with loading/calling "label_deviation_lb" from "libfppoly.so"')
+        print(inst)
+    return res
+
+def clear_neurons_status(man,element):
+    """
+        Clear and reset the neuron status
+        Returns
+        -------
+        None
+        """
+    try:
+        clear_neurons_status_c = fppoly_api.clear_neurons_status
+        clear_neurons_status_c.restype = None
+        clear_neurons_status_c.argtypes = [ElinaManagerPtr, ElinaAbstract0Ptr]
+        clear_neurons_status_c(man, element)
+    except:
+        print('Problem with loading/calling "clear_neurons_status" from "fppoly.so"')
+        print('Make sure you are passing ElinaManagerPtr, ElinaAbstract0Ptr to the function')
+
+def run_deeppoly(man,element, act = 'ReLU'):
+    """
+        Clear and reset the neuron status
+        Returns
+        -------
+        None
+        """
+    try:
+        run_deeppoly_c = None
+        if(act == 'ReLU'):
+            run_deeppoly_c = fppoly_api.run_deeppoly
+        else:
+            assert False, "Only support ReLU activations!"
+        run_deeppoly_c.restype = None
+        run_deeppoly_c.argtypes = [ElinaManagerPtr, ElinaAbstract0Ptr]
+        run_deeppoly_c(man, element)
+    except:
+        print('Problem with loading/calling "run_deeppoly" from "fppoly.so"')
+        print('Make sure you are passing ElinaManagerPtr, ElinaAbstract0Ptr to the function')
+
+def update_bounds_from_LPsolve(man, element, affine_num, num_each_layer, all_lbs, all_ubs):
+    """
+    Update the DeepPoly instantiation in ERAN with Self LP solver returned bounds
+    Returns None
+    """
+    try:
+        update_bounds_from_LPsolve_c = fppoly_api.update_bounds_from_LPsolve
+        update_bounds_from_LPsolve_c.restype = None
+        num_each_layer_np = np.ascontiguousarray(num_each_layer, dtype=np.uintc)
+        update_bounds_from_LPsolve_c.argtypes = [ElinaManagerPtr, ElinaAbstract0Ptr, c_int, ndpointer(c_uint), ndpointer(ctypes.c_double), ndpointer(ctypes.c_double)]
+        update_bounds_from_LPsolve_c(man, element, affine_num, num_each_layer_np, all_lbs, all_ubs)
+    except Exception as inst:
+        print('Problem with loading/calling "update_bounds_from_LPsolve" from "libfppoly.so"')
+        print(inst)
+
+# end of added functions
 
 def is_greater(man, element, y, x, use_area_heuristic):
     """

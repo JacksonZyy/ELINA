@@ -39,6 +39,8 @@ extern "C" {
 
 void update_state_using_previous_layers_parallel(elina_manager_t *man, fppoly_t *fp, size_t layerno);
 
+void update_state_layer_by_layer_parallel(elina_manager_t *man, fppoly_t *fp, size_t layerno);
+
 #ifdef __cplusplus
  }
 #endif

@@ -128,12 +128,16 @@ void fppoly_from_network_input_box(fppoly_t *res, size_t intdim, size_t realdim,
 	size_t num_pixels = intdim + realdim;
 	res->input_inf = (double *)malloc(num_pixels*sizeof(double));
 	res->input_sup = (double *)malloc(num_pixels*sizeof(double));
+	res->original_input_inf = (double *)malloc(num_pixels*sizeof(double));
+	res->original_input_sup = (double *)malloc(num_pixels*sizeof(double));
 	res->input_lexpr = NULL;
 	res->input_uexpr = NULL;
 	size_t i;
 	for(i=0; i < num_pixels; i++){
 		res->input_inf[i] = -inf_array[i];
 		res->input_sup[i] = sup_array[i];
+		res->original_input_inf[i] = -inf_array[i];
+		res->original_input_sup[i] = sup_array[i];
 	}
 	res->num_pixels = num_pixels;
     res->spatial_indices = NULL;
@@ -170,7 +174,8 @@ elina_abstract0_t* fppoly_from_network_input_poly(elina_manager_t *man,
 	size_t num_pixels = intdim + realdim;
 	res->input_lexpr = (expr_t **)malloc(num_pixels*sizeof(expr_t *));
 	res->input_uexpr = (expr_t **)malloc(num_pixels*sizeof(expr_t *));
-	
+	res->original_input_inf = NULL;
+	res->original_input_sup = NULL;
 	size_t i;
         double * tmp_weights = (double*)malloc(expr_size*sizeof(double));
 	size_t * tmp_dim = (size_t*)malloc(expr_size*sizeof(size_t));
@@ -237,7 +242,53 @@ void layer_fprint(FILE * stream, layer_t * layer, char** name_of_dim){
 	}
 }
 
+int return_non_zero_num(double * weight, size_t total_num){
+	size_t i;
+	size_t count = 0;
+	for(i=0; i < total_num; i++){
+		if(weight[i] != 0.0){
+			count ++;
+		}
+	}
+	return count;
+}
 
+void obtain_non_zero(double * weight, double * coeff, size_t * dim, size_t total_num){
+	size_t i;
+	size_t count = 0;
+	for(i=0; i < total_num; i++){
+		if(weight[i] != 0.0){
+			coeff[count] = weight[i];
+			dim[count] = i;
+			count ++;
+		}
+	}
+	return;
+}
+
+void handle_sparse_layer(elina_manager_t* man, elina_abstract0_t * element, double **weights, double *cst,   size_t num_out_neurons, size_t num_in_neurons, size_t *predecessors, size_t num_predecessors){
+	assert(num_predecessors==1);
+    fppoly_t *fp = fppoly_of_abstract0(element);
+    size_t numlayers = fp->numlayers;
+	fppoly_add_new_layer(fp,num_out_neurons, predecessors, num_predecessors, false);
+    neuron_t **out_neurons = fp->layers[numlayers]->neurons;
+    size_t i;
+    for(i=0; i < num_out_neurons; i++){
+        double cst_i = cst[i];
+		double * weight_i = weights[i];
+		size_t non_zero = return_non_zero_num(weight_i, num_in_neurons);
+		double *coeff = (double *)malloc(non_zero*sizeof(double));
+		size_t *dim = (size_t *)malloc(non_zero*sizeof(double));
+		obtain_non_zero(weight_i, coeff, dim, num_in_neurons);
+		out_neurons[i]->lexpr = create_sparse_expr(coeff, cst_i, dim, non_zero);
+		sort_sparse_expr(out_neurons[i]->lexpr); 
+		out_neurons[i]->uexpr = out_neurons[i]->lexpr;
+		free(coeff);
+		free(dim);
+    }
+    update_state_using_previous_layers_parallel(man,fp,numlayers);
+    return;
+}
 
 void handle_fully_connected_layer_with_backsubstitute(elina_manager_t* man, elina_abstract0_t* element, double **weights, double * cst, size_t num_out_neurons, size_t num_in_neurons, size_t * predecessors, size_t num_predecessors, bool alloc, fnn_op OP){
     //printf("FC start here %zu %zu %zu %zu\n",num_in_neurons,num_out_neurons,predecessors[0],num_predecessors);
@@ -270,16 +321,7 @@ void handle_fully_connected_layer_with_backsubstitute(elina_manager_t* man, elin
         }
 	    out_neurons[i]->uexpr = out_neurons[i]->lexpr;
     }
-
-//    if(numlayers==17){
-//        printf("return here1\n");
-////        layer_fprint(stdout,fp->layers[numlayers],NULL);
-////        expr_print(out_neurons[0]->lexpr);
-//        fflush(stdout);
-//        }
-
     update_state_using_previous_layers_parallel(man,fp,numlayers);
-    
 //    if(numlayers==17){
 //        printf("return here2\n");
 ////        layer_fprint(stdout,fp->layers[numlayers],NULL);
@@ -688,6 +730,150 @@ bool is_greater(elina_manager_t* man, elina_abstract0_t* element, elina_dim_t y,
 	
 }
 
+//begining of function for GPUArena
+double label_deviation_lb(elina_manager_t* man, elina_abstract0_t* element, elina_dim_t y, elina_dim_t x){
+	fppoly_t *fp = fppoly_of_abstract0(element);
+	fppoly_internal_t * pr = fppoly_init_from_manager(man,ELINA_FUNID_ASSIGN_LINEXPR_ARRAY);
+	expr_t * sub = (expr_t *)malloc(sizeof(expr_t));
+	sub->inf_cst = 0;
+	sub->sup_cst = 0;
+	sub->inf_coeff = (double*)malloc(2*sizeof(double));
+	sub->sup_coeff = (double*)malloc(2*sizeof(double));
+	sub->dim =(size_t *)malloc(2*sizeof(size_t));
+	sub->size = 2;
+	sub->type = SPARSE;
+	sub->inf_coeff[0] = -1;
+	sub->sup_coeff[0] = 1;
+	sub->dim[0] = y;
+	sub->inf_coeff[1] = 1;
+	sub->sup_coeff[1] = -1;
+	sub->dim[1] = x;
+	
+	//layer_fprint(stdout,fp->layers[3],NULL);
+	double lb = get_lb_using_previous_layers(man, fp, &sub, fp->numlayers);
+	
+	if(sub){
+		free_expr(sub);
+		sub = NULL;
+	}
+	return -lb;
+}
+
+
+void* clear_neurons_status(elina_manager_t* man, elina_abstract0_t* element){
+	fppoly_t *fp = fppoly_of_abstract0(element);
+	size_t i, j;
+	for(i = 0; i < fp->numlayers; i++){
+		layer_t *layer = fp->layers[i];
+		neuron_t ** neurons = layer->neurons;
+		for(j = 0; j < layer->dims; j++){
+			neurons[j]->lb = INFINITY;
+			neurons[j]->ub = INFINITY;
+		}
+	}
+	for(i=0; i < fp->num_pixels; i++){
+		// set the input neurons back to the original input space
+		fp->input_inf[i] = fp->original_input_inf[i];
+		fp->input_sup[i] = fp->original_input_sup[i];
+	}
+	return NULL;
+}
+
+void* run_deeppoly(elina_manager_t* man, elina_abstract0_t* element){
+	fppoly_t *fp = fppoly_of_abstract0(element);
+	size_t numlayers = fp->numlayers;
+	size_t i, j;
+	for (j=0; j < numlayers; j++){
+		if(!fp->layers[j]->is_activation){
+			// deeppoly run the affine layer
+			neuron_t **neurons = fp->layers[j]->neurons;
+			for(i=0; i < fp->layers[j]->dims; i++){
+				// free before new assignment
+				if(neurons[i]->backsubstituted_lexpr){
+					free_expr(neurons[i]->backsubstituted_lexpr);
+				}
+				neurons[i]->backsubstituted_lexpr = copy_expr(neurons[i]->lexpr);
+				// expr_print(neurons[i]->backsubstituted_lexpr);
+				if(neurons[i]->backsubstituted_uexpr){
+					free_expr(neurons[i]->backsubstituted_uexpr);
+				}
+				neurons[i]->backsubstituted_uexpr = copy_expr(neurons[i]->uexpr);
+				// expr_print(neurons[i]->backsubstituted_uexpr);
+			}	
+			// printf("before update_state_layer_by_layer_parallel\n");
+			update_state_layer_by_layer_parallel(man,fp, j);
+			// printf("affine 1 's interval is [%.3f, %.3f], affine 2 's interval is [%.3f, %.3f] ", -neurons[0]->lb, neurons[0]->ub, -neurons[1]->lb, neurons[1]->ub);
+			// printf("after update_state_layer_by_layer_parallel\n");
+		}
+		else{
+			// deeppoly run the relu layer
+			int k = fp->layers[j]->predecessors[0]-1;
+			layer_t *predecessor_layer = fp->layers[k];
+			neuron_t **in_neurons = fp->layers[k]->neurons;
+			neuron_t **out_neurons = fp->layers[j]->neurons;
+			for(i=0; i < fp->layers[j]->dims; i++){
+				out_neurons[i]->lb = -fmax(0.0, -in_neurons[i]->lb);
+				out_neurons[i]->ub = fmax(0,in_neurons[i]->ub);
+				if(out_neurons[i]->lexpr){
+					free_expr(out_neurons[i]->lexpr);
+				}
+				out_neurons[i]->lexpr = create_relu_expr(out_neurons[i], in_neurons[i], i, true, true);
+				if(out_neurons[i]->uexpr){
+					free_expr(out_neurons[i]->uexpr);
+				}
+				out_neurons[i]->uexpr = create_relu_expr(out_neurons[i], in_neurons[i], i, true, false);
+				// printf("relu %zu 's upper expression is ", i);
+				// expr_print(out_neurons[i]->uexpr);
+			}
+		}
+	}
+	return NULL;
+}
+
+void update_bounds_from_LPsolve(elina_manager_t* man, elina_abstract0_t* element, int affine_num, size_t * num_each_layer, double * all_lbs, double * all_ubs){
+	//obtain the bounds from GPU LP solve and then update it with ERAN deeppoly backend
+	// handle the input neurons
+	int i, j;
+	int start_index = 0; int layer_index = 0; int refine_count = 0;
+	fppoly_t *fp = fppoly_of_abstract0(element);
+	size_t numlayers = fp->numlayers;
+	size_t c_inputDim = fp->num_pixels;
+	size_t py_inputDim = num_each_layer[0];
+	assert(c_inputDim == py_inputDim); // ensure dimension match
+	for(i=0; i < c_inputDim; i++){
+		fp->input_inf[i] = fmin(-all_lbs[i], fp->input_inf[i]);
+		fp->input_sup[i] = fmin(all_ubs[i], fp->input_sup[i]);
+	}
+	start_index += c_inputDim; layer_index++;
+
+	// move on to re-assign intermediate neurons
+	for(i = 0; i < numlayers; i++){
+		layer_t * cur_layer = fp->layers[i];
+		if(!cur_layer->is_activation && (i < numlayers-1) && fp->layers[i+1]->is_activation){ // intermediate layer that is input of relu
+			neuron_t ** aff_neurons = cur_layer->neurons;
+			c_inputDim = cur_layer->dims;
+			py_inputDim = num_each_layer[layer_index];
+			assert(c_inputDim == py_inputDim); // ensure dimension match
+			for(j = 0; j < c_inputDim; j++){
+				neuron_t * affine_node = aff_neurons[j];
+				if(affine_node->ub > 0.0 && affine_node->lb > 0.0){
+					// only update those unstable neurons
+					affine_node->lb = fmin(-all_lbs[start_index+j], affine_node->lb);
+					affine_node->ub = fmin(all_ubs[start_index+j], affine_node->ub);
+					// printf("lb %lf, ub %lf\n", affine_node->lb, affine_node->ub);
+					if(affine_node->ub <= 0.0 || affine_node->lb <= 0.0){
+						refine_count++;
+					}
+				}
+			}
+			start_index+= c_inputDim; layer_index++;
+		}
+	}
+	printf("Refreshed ReLU neodes number is: %d\n", refine_count);
+	run_deeppoly(man, element);
+	return;
+}
+// end of my functions
 
 long int max(long int a, long int b){
 	return a> b? a : b;
@@ -943,20 +1129,26 @@ void fppoly_free(elina_manager_t *man, fppoly_t *fp){
 	fp->layers = NULL;
 	free(fp->input_inf);
 	fp->input_inf = NULL;
-        if(fp->input_lexpr!=NULL && fp->input_uexpr!=NULL){
+	if(fp->input_lexpr!=NULL && fp->input_uexpr!=NULL){
 		for(i=0; i < fp->num_pixels; i++){
 			free(fp->input_lexpr[i]);
 			free(fp->input_uexpr[i]);
 		}
-	
 		free(fp->input_lexpr);
 		fp->input_lexpr = NULL;
 		free(fp->input_uexpr);
 		fp->input_uexpr = NULL;
-        }
+	}
 	free(fp->input_sup);
 	fp->input_sup = NULL;
-
+	if(fp->original_input_inf){
+		free(fp->original_input_inf);
+		fp->original_input_inf = NULL;
+	}
+	if(fp->original_input_sup){
+		free(fp->original_input_sup);
+		fp->original_input_sup = NULL;
+	}
     free(fp->spatial_indices);
     fp->spatial_indices = NULL;
     free(fp->spatial_neighbors);
@@ -965,10 +1157,6 @@ void fppoly_free(elina_manager_t *man, fppoly_t *fp){
 	free(fp);
 	fp = NULL;
 }
-
-
-
-
 
 
 void fppoly_fprint(FILE* stream, elina_manager_t* man, fppoly_t* fp, char** name_of_dim){

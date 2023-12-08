@@ -41,6 +41,14 @@ double get_lb_using_previous_layers(elina_manager_t *man, fppoly_t *fp, expr_t *
 
 double get_ub_using_previous_layers(elina_manager_t *man, fppoly_t *fp, expr_t **expr, size_t layerno);
 
+double get_lb_using_prev_layer(elina_manager_t *man, fppoly_t *fp, expr_t **expr, int k);
+
+double get_ub_using_prev_layer(elina_manager_t *man, fppoly_t *fp, expr_t **expr, int k);
+
+// double get_lb_using_predecessor_layer(fppoly_internal_t * pr,fppoly_t *fp, expr_t **lexpr_ptr, int k);
+
+// double get_ub_using_predecessor_layer(fppoly_internal_t * pr,fppoly_t *fp, expr_t **uexpr_ptr, int k);
+
 elina_linexpr0_t *get_output_lexpr_defined_over_previous_layers(elina_manager_t *man, elina_abstract0_t *element, int neuron_no, int prev_layer);
 
 elina_linexpr0_t *get_output_uexpr_defined_over_previous_layers(elina_manager_t *man, elina_abstract0_t *element, int neuron_no, int prev_layer);

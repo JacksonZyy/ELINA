@@ -116,6 +116,9 @@ typedef struct fppoly_t{
 	size_t numlayers;
 	double *input_inf;
 	double * input_sup;
+	// These domains never changes over the refinement procedure
+	double * original_input_inf;
+	double * original_input_sup;
 	expr_t ** input_lexpr;
 	expr_t ** input_uexpr;
 	size_t size;
@@ -134,6 +137,7 @@ typedef struct nn_thread_t{
 	elina_manager_t *man;
 	fppoly_t *fp;
 	size_t layerno;
+	int k;
 	elina_linexpr0_t ** linexpr0;
 	double *res;
 }nn_thread_t;
@@ -157,6 +161,8 @@ fppoly_internal_t* fppoly_init_from_manager(elina_manager_t* man, elina_funid_t 
 void handle_padding_layer(elina_manager_t* man, elina_abstract0_t* element, size_t * input_size, size_t *output_size, size_t pad_top, size_t pad_left, size_t pad_bottom, size_t pad_right, size_t *predecessors, size_t num_predecessors);
 
 void handle_fully_connected_layer(elina_manager_t* man, elina_abstract0_t* element, double **weights, double * bias, size_t num_out_neurons, size_t num_in_neurons, size_t *predecessors, size_t num_predecessors);
+
+void handle_sparse_layer(elina_manager_t* man, elina_abstract0_t * abs, double **weights, double *bias,   size_t size, size_t num_pixels, size_t *predecessors, size_t num_predecessors);
 
 void handle_right_multiply_with_matrix(elina_manager_t* man, elina_abstract0_t* element, double **weights, size_t num_weight_rows, size_t num_weight_cols, size_t num_out_cols, size_t * predecessors, size_t num_predecessors);
 
@@ -197,7 +203,13 @@ void fppoly_free(elina_manager_t *man, fppoly_t *fp);
 
 bool is_greater(elina_manager_t* man, elina_abstract0_t* element, elina_dim_t y, elina_dim_t x);
 
+double label_deviation_lb(elina_manager_t* man, elina_abstract0_t* element, elina_dim_t y, elina_dim_t x);
 
+void* clear_neurons_status(elina_manager_t* man, elina_abstract0_t* element);
+
+void* run_deeppoly(elina_manager_t* man, elina_abstract0_t* element);
+
+void update_bounds_from_LPsolve(elina_manager_t* man, elina_abstract0_t* element, int affine_num, size_t * num_each_layer, double * all_lbs, double * all_ubs);
 
 void handle_convolutional_layer(elina_manager_t* man, elina_abstract0_t* element, double *filter_weights, double * filter_bias,  
 				         size_t * input_size, size_t *filter_size, size_t num_filters, size_t *strides, size_t *output_size, size_t pad_top, size_t pad_left, size_t pad_bottom, size_t pad_right, bool has_bias, size_t *predecessors, size_t num_predecessors);
