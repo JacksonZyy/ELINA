@@ -20,3 +20,4 @@ Makefile.config
 /python_interface/.idea
 /gpupoly/out/install/x64-Debug
 /python_interface/venv
+/gpupoly
